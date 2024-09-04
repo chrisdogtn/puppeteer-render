@@ -17,29 +17,73 @@ const scrapeLogic = async (res) => {
   try {
     const page = await browser.newPage();
 
-    await page.goto("https://developer.chrome.com/");
+    // Step 1: Go to the login page and extract the CSRF token
+    await page.goto("https://rentmanapp.com/login", {
+      waitUntil: "networkidle2",
+    });
+    const csrfToken = await page.evaluate(() => {
+      const tokenInput = document.querySelector('input[name="_token"]');
+      return tokenInput ? tokenInput.value : null;
+    });
 
-    // Set screen size
-    await page.setViewport({ width: 1080, height: 1024 });
+    if (!csrfToken) {
+      console.error("Failed to retrieve CSRF token");
+      await browser.close();
+      return;
+    }
 
-    // Type into search box
-    await page.type(".search-box__input", "automate beyond recorder");
+    console.log(`CSRF Token: ${csrfToken}`);
 
-    // Wait and click on first result
-    const searchResultSelector = ".search-box__link";
-    await page.waitForSelector(searchResultSelector);
-    await page.click(searchResultSelector);
+    // Step 2: Perform the login action
+    await page.type('input[name="email"]', "Chris@chattanoogaproaudio.com");
+    await page.type('input[name="password"]', "H12awkss!");
+    await page.evaluate((token) => {
+      document.querySelector('input[name="_token"]').value = token;
+    }, csrfToken);
 
-    // Locate the full title with a unique string
-    const textSelector = await page.waitForSelector(
-      "text/Customize and automate"
+    await page.click('button[type="submit"]'); // Assuming the login button is of type submit
+    console.log("waiting");
+    await page.waitForSelector(".account-loginbutton");
+    console.log("waiting2");
+    // Step 3: Retrieve cookies after login
+    const cookies = await page.cookies();
+    const rentmanSessionCookie = cookies.find(
+      (cookie) => cookie.name === "rentman_session"
     );
-    const fullTitle = await textSelector.evaluate((el) => el.textContent);
 
-    // Print the full title
-    const logStatement = `The title of this blog post is ${fullTitle}`;
-    console.log(logStatement);
-    res.send(logStatement);
+    if (!rentmanSessionCookie) {
+      console.error("Failed to retrieve rentman_session cookie after login");
+      await browser.close();
+      return;
+    }
+
+    console.log("Rentman Session Cookie:", rentmanSessionCookie.value);
+
+    // Step 4: Use the cookie to get the JWT
+    await page.setCookie({
+      name: "rentman_session",
+      value: rentmanSessionCookie.value,
+      domain: ".rentmanapp.com",
+    });
+
+    const jwtResponse = await page.goto(
+      "https://rentmanapp.com/account/getJWTLoginUrl/chattanoogaproaudio",
+      {
+        waitUntil: "networkidle2",
+      }
+    );
+
+    const jsonResponse = await jwtResponse.json();
+    console.log("JWT Response:", jsonResponse);
+    const urlParams = new URLSearchParams(jsonResponse.url);
+    const jwtToken = urlParams.get(
+      "https://chattanoogaproaudio.rentmanapp.com/#/login?jwt"
+    );
+    console.log("Extracted JWT Token:", jwtToken);
+
+    await browser.close();
+    res.send(jwtToken);
+    return jwtToken;
   } catch (e) {
     console.error(e);
     res.send(`Something went wrong while running Puppeteer: ${e}`);
