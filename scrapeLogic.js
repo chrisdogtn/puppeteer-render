@@ -59,6 +59,7 @@ const scrapeLogic = async (res) => {
 
     console.log("Rentman Session Cookie:", rentmanSessionCookie.value);
 
+    return rentmanSessionCookie.value;
     // Step 4: Use the cookie to get the JWT
     await page.setCookie({
       name: "rentman_session",
